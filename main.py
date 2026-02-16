@@ -15,7 +15,11 @@ app = FastAPI(title="Gestor de Impresión API", version="1.0.0")
 # --- Global State ---
 # In a production app, we might use a dependency injection or a singleton manager.
 # For simplicity here, we use a global instance.
-worker = SeleniumWorker()
+try:
+    worker = SeleniumWorker()
+except Exception as e:
+    logger.error(f"Failed to initialize worker: {e}")
+    worker = None
 
 # --- Models ---
 class LoginRequest(BaseModel):

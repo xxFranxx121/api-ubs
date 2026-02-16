@@ -15,10 +15,8 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 from selenium.webdriver.chrome.options import Options
 
 class SeleniumWorker:
-    def __init__(self, download_dir=None):
+    def __init__(self):
         self.driver = None
-        self.download_dir = download_dir or os.path.join(os.path.expanduser('~'), 'Desktop', 'ImpresionesPDF')
-        os.makedirs(self.download_dir, exist_ok=True)
         self.is_running = False
 
     def start_session(self, user, password, fecha_desde, fecha_hasta, headless=True):
@@ -38,20 +36,6 @@ class SeleniumWorker:
         chrome_options.add_argument("--allow-running-insecure-content")
         chrome_options.add_argument("--disable-web-security")
         chrome_options.add_argument("--safeBrowse-disable-download-protection")
-        
-        prefs = {
-            "download.default_directory": self.download_dir,
-            "download.prompt_for_download": False,
-            "download.directory_upgrade": True,
-            "plugins.always_open_pdf_externally": True,
-            "profile.default_content_settings.popups": 0,
-            "profile.default_content_setting_values.automatic_downloads": 1,
-            "safeBrowse.enabled": False,
-            "safeBrowse.disable_download_protection": True,
-            "profile.default_content_setting_values.mixed_script": 1,
-            "profile.automatic_downloads.enabled": True,
-        }
-        chrome_options.add_experimental_option("prefs", prefs)
 
         self.driver = webdriver.Chrome(options=chrome_options)
         
