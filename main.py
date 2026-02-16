@@ -42,6 +42,10 @@ class TaskResponse(BaseModel):
 def home():
     return {"message": "Gestor de Impresión API is running"}
 
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
 @app.post("/start-session")
 def start_session(req: LoginRequest):
     """
