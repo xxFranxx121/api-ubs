@@ -39,7 +39,9 @@ async def log_requests(request: Request, call_next):
 # In a production app, we might use a dependency injection or a singleton manager.
 # For simplicity here, we use a global instance.
 try:
-    worker = SeleniumWorker()
+    # worker = SeleniumWorker()
+    worker = None # Temporarily disabled for debugging
+    logger.info("Worker DISABLED for debugging")
 except Exception as e:
     logger.error(f"Failed to initialize worker: {e}")
     worker = None
