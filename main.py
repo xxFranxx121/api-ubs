@@ -1,14 +1,15 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Request
 from pydantic import BaseModel
 from worker import SeleniumWorker
 import threading
 import uuid
 import logging
 import os
+from contextlib import asynccontextmanager
 
 # --- Configuration ---
-from fastapi import FastAPI, HTTPException, Body, Request
-from contextlib import asynccontextmanager
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("API")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
