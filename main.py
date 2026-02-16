@@ -7,19 +7,32 @@ import logging
 import os
 
 # --- Configuration ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("API")
+from fastapi import FastAPI, HTTPException, Body, Request
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Gestor de Impresión API", version="1.0.0")
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info(f"Starting up... Port config: {os.getenv('PORT', 'Not Set')}")
-    logger.info("Worker initialization check...")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    port = os.environ.get("PORT", "Not Set")
+    logger.info(f"Lifespan Startup: Application starting on port {port}")
     if worker:
-        logger.info("Worker initialized successfully (lazy)")
+        logger.info("Worker instance is ready (lazy init)")
     else:
-        logger.error("Worker initialization failed")
+        logger.error("Worker instance failed to initialize")
+    yield
+    # Shutdown
+    logger.info("Lifespan Shutdown: Cleaning up resources")
+    if worker and worker.driver:
+        worker.stop_session()
+
+app = FastAPI(title="Gestor de Impresión API", version="1.0.0", lifespan=lifespan)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"Incoming Request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"Response Status: {response.status_code}")
+    return response
 
 # --- Global State ---
 # In a production app, we might use a dependency injection or a singleton manager.
