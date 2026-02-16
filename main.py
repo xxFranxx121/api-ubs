@@ -12,6 +12,15 @@ logger = logging.getLogger("API")
 
 app = FastAPI(title="Gestor de Impresión API", version="1.0.0")
 
+@app.on_event("startup")
+async def startup_event():
+    logger.info(f"Starting up... Port config: {os.getenv('PORT', 'Not Set')}")
+    logger.info("Worker initialization check...")
+    if worker:
+        logger.info("Worker initialized successfully (lazy)")
+    else:
+        logger.error("Worker initialization failed")
+
 # --- Global State ---
 # In a production app, we might use a dependency injection or a singleton manager.
 # For simplicity here, we use a global instance.
