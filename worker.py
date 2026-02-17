@@ -83,6 +83,10 @@ class SeleniumWorker:
         }
 
         try:
+             # --- Dismiss any open modals first ---
+            self._dismiss_modals()
+            sleep(0.5)
+
              # --- Search NAI ---
             campo_nai = WebDriverWait(self.driver, 10).until(EC.visibility_of_element_located((By.ID, '716a692a2c896631221b2cb820be3a41')))
             campo_nai.clear()
@@ -230,11 +234,45 @@ class SeleniumWorker:
         except TimeoutException:
             return ""
 
-    def _reset_page(self):
-        """Intents to reset the page to the search state."""
+    def _dismiss_modals(self):
+        """Dismisses any open modal dialogs that may block interaction."""
         try:
-             url_consulta = 'http://optimionline.no-ip.info:8090/optimi/solutions/SisCoAs/index.html#Login1/consultaEstadoRecetas'
-             if self.driver:
+            # Try clicking common close buttons
+            close_buttons = [
+                '4545e5d56c6ecac03fc3f165c0cc6edf',  # Primary close button
+                'bfe6d74aa1ef34254188450ec6ed9be2',  # Fallback "Cerrar" button
+            ]
+            for btn_id in close_buttons:
+                try:
+                    btn = self.driver.find_element(By.ID, btn_id)
+                    if btn.is_displayed():
+                        btn.click()
+                        sleep(0.3)
+                except:
+                    pass
+
+            # Force-remove any remaining modal backdrops via JavaScript
+            self.driver.execute_script("""
+                var modals = document.querySelectorAll('.modal-backdrop');
+                modals.forEach(function(m) { m.remove(); });
+                var openModals = document.querySelectorAll('.modal.in, .modal.show');
+                openModals.forEach(function(m) { m.style.display = 'none'; });
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = 'auto';
+            """)
+        except:
+            pass
+
+    def _reset_page(self):
+        """Resets the page to the search state."""
+        try:
+            if self.driver:
+                # First dismiss any open modals
+                self._dismiss_modals()
+                sleep(0.3)
+                # Navigate back to search
+                url_consulta = 'http://optimionline.no-ip.info:8090/optimi/solutions/SisCoAs/index.html#Login1/consultaEstadoRecetas'
                 self.driver.get(url_consulta)
+                sleep(1)
         except:
             pass
