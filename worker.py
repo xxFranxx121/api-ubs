@@ -209,6 +209,10 @@ class SeleniumWorker:
                         # Log error but keep original extracted value if calculation fails
                         print(f"Error calculating IOSEP UB: {e}")
 
+                # Fecha de auditoría
+                receta_info["fecha_auditoria"] = self._get_text((By.ID, "9980de62bb251da14ba6309f9cfaf409"), es_input=True) or \
+                                                  self._get_text((By.ID, "8b9ef194102596354060e6e206547e9d"), es_input=True) or None
+
                 # Auditado (campo "auditada") - Si/No
                 receta_info["auditado"] = self._get_text((By.ID, "ebf545d066b60df9578a25fa0b617d62"), es_input=True) or \
                                           self._get_text((By.ID, "8ffbd0add463fb2b3ca9a35c5798c6b4"), es_input=True) or "Desconocido"
