@@ -129,13 +129,34 @@ class SeleniumWorker:
                     pass
 
                 # Extract Data
-                receta_info["paciente"] = self._get_text((By.XPATH, "//div[@id='a71111d9c4ab7743546616e0deae5a11']//span[contains(@class, 'ui-select-match-text')]")) or \
-                                          self._get_text((By.XPATH, "//div[@id='6caea413dc57625240f3b9dc09e28520']//span[contains(@class, 'ui-select-match-text')]"))
-                
+                facturador_texto = self._get_text((By.XPATH, "//div[@id='f72d92c967eb6ad1b9d19797cae7397c']//span[contains(@class, 'ui-select-match-text')]")) or \
+                                   self._get_text((By.XPATH, "//div[@id='21f303799709d14b7d3412bff2a38d29']//span[contains(@class, 'ui-select-match-text')]"))
+
+                # Extraer nombre y código del bioquímico facturador (ej: "358 - STERLING CRISTINA SOLEDAD")
+                receta_info["codigo_facturador"] = None
+                receta_info["bioquimico_facturador"] = facturador_texto
+                if facturador_texto:
+                    parts = facturador_texto.split('-', 1)
+                    if len(parts) > 1:
+                        possible_code = parts[0].strip()
+                        if possible_code.isdigit():
+                            receta_info["codigo_facturador"] = possible_code
+                            receta_info["bioquimico_facturador"] = parts[1].strip()
+
                 obra_social_texto = self._get_text((By.XPATH, "//div[@id='dbe9fe1acd3824e179975ce296c8353d']//span[contains(@class, 'ui-select-match-text')]")) or \
                                     self._get_text((By.XPATH, "//div[@id='34bd25b82edac42301679c0906cb469e']//span[contains(@class, 'ui-select-match-text')]"))
                 
-                receta_info["obra_social"] = obra_social_texto
+                # Normalizar obra social
+                if obra_social_texto:
+                    upper = obra_social_texto.upper()
+                    if "PAMI" in upper:
+                        receta_info["obra_social"] = "PAMI"
+                    elif "IOSEP" in upper:
+                        receta_info["obra_social"] = "IOSEP"
+                    else:
+                        receta_info["obra_social"] = obra_social_texto
+                else:
+                    receta_info["obra_social"] = None
                 
                 # Extraer ID de Obra Social
                 # Formatos esperados: "25 - PAMI(PAMI)" o "2 - IOSEP"
@@ -188,14 +209,17 @@ class SeleniumWorker:
                         # Log error but keep original extracted value if calculation fails
                         print(f"Error calculating IOSEP UB: {e}")
 
-                # Estado
-                id_del_padre = "b32a29dffef3410eb2da1e02e1e335e6"
-                xpath_locator = f"//div[@id='{id_del_padre}']//span[@class='ng-binding']"
-                elementos_estado = self.driver.find_elements(By.XPATH, xpath_locator)
-                if elementos_estado:
-                    receta_info["estado"] = elementos_estado[0].text.strip()
+                # Auditado (campo "auditada") - Si/No
+                receta_info["auditado"] = self._get_text((By.ID, "ebf545d066b60df9578a25fa0b617d62"), es_input=True) or \
+                                          self._get_text((By.ID, "8ffbd0add463fb2b3ca9a35c5798c6b4"), es_input=True) or "Desconocido"
+
+                # Coseguro (solo aplica para IOSEP)
+                if receta_info.get("obra_social") == "IOSEP":
+                    receta_info["coseguro_estado"] = self._get_text((By.ID, "b32a29dffef3410eb2da1e02e1e335e6")) or "Desconocido"
+                    receta_info["coseguro_monto"] = self._get_text((By.ID, "d8094968a8583c48bc0569921eabef64"), es_input=True) or "0"
                 else:
-                    receta_info["estado"] = "Desconocido"
+                    receta_info["coseguro_estado"] = None
+                    receta_info["coseguro_monto"] = None
 
                 result_data["recetas"].append(receta_info)
                 
