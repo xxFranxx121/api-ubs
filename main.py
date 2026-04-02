@@ -26,24 +26,16 @@ async def lifespan(app: FastAPI):
     # Startup
     port = os.environ.get("PORT", "Not Set")
     logger.info(f"Lifespan Startup: Application starting on port {port}")
-    
-    global worker
-    if SeleniumWorker:
-        try:
-            worker = SeleniumWorker()
-            logger.info("Worker instance initialized.")
-        except Exception as e:
-            logger.error(f"Worker init failed: {e}")
-            worker = None
-    else:
-        logger.warning("SeleniumWorker class not available (import failed).")
-        worker = None
-
     yield
     # Shutdown
     logger.info("Lifespan Shutdown: Cleaning up resources")
-    if worker and hasattr(worker, 'stop_session'):
-        worker.stop_session()
+    for session_id, worker in workers.items():
+        try:
+            worker.stop_session()
+            logger.info(f"Stopped session {session_id}")
+        except Exception:
+            pass
+    workers.clear()
 
 app = FastAPI(title="Gestor de Impresión API", version="1.0.0", lifespan=lifespan)
 
@@ -63,7 +55,7 @@ async def log_requests(request: Request, call_next):
     return response
 
 # --- Global State ---
-worker = None
+workers = {}  # session_id -> SeleniumWorker
 
 # --- Models ---
 class LoginRequest(BaseModel):
@@ -74,11 +66,11 @@ class LoginRequest(BaseModel):
     headless: bool = True
 
 class ProcessRequest(BaseModel):
+    session_id: str
     nai: str
 
-class TaskResponse(BaseModel):
-    task_id: str
-    status: str
+class StopRequest(BaseModel):
+    session_id: str
 
 # --- Endpoints ---
 
@@ -92,15 +84,12 @@ def health_check():
 
 @app.post("/start-session")
 def start_session(req: LoginRequest):
-    """
-    Initializes the Selenium WebDriver and logs into the system.
-    """
-    if not worker:
-        raise HTTPException(status_code=503, detail="Worker not initialized (Import/Startup failed)")
+    if not SeleniumWorker:
+        raise HTTPException(status_code=503, detail="SeleniumWorker not available (Import failed)")
 
-    if worker.driver:
-        return {"status": "Already running"}
-    
+    session_id = str(uuid.uuid4())
+    worker = SeleniumWorker()
+
     try:
         worker.start_session(
             user=req.user,
@@ -109,55 +98,50 @@ def start_session(req: LoginRequest):
             fecha_hasta=req.fecha_hasta,
             headless=req.headless
         )
-        return {"status": "Session started successfully"}
+        workers[session_id] = worker
+        logger.info(f"Session {session_id} started for user {req.user}")
+        return {"status": "Session started successfully", "session_id": session_id}
     except Exception as e:
+        worker.stop_session()
         logger.error(f"Error starting session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/stop-session")
-def stop_session():
-    """
-    Closes the browser and ends the session.
-    """
+def stop_session(req: StopRequest):
+    worker = workers.pop(req.session_id, None)
     if not worker:
-        return {"status": "Worker not initialized"}
-        
+        raise HTTPException(status_code=404, detail="Session not found")
+
     worker.stop_session()
+    logger.info(f"Session {req.session_id} stopped")
     return {"status": "Session stopped"}
 
 @app.post("/process-nai")
 def process_nai(req: ProcessRequest):
-    """
-    Processes a single NAI synchronously (for now).
-    """
+    worker = workers.get(req.session_id)
     if not worker:
-        raise HTTPException(status_code=503, detail="Worker not initialized")
+        raise HTTPException(status_code=404, detail="Session not found. Call /start-session first.")
 
     if not worker.is_running:
-        raise HTTPException(status_code=400, detail="Session not started. Call /start-session first.")
+        raise HTTPException(status_code=400, detail="Session not active.")
 
     try:
-        result = worker.process_nai(
-            nai=req.nai
-        )
+        result = worker.process_nai(nai=req.nai)
         return result
-        
     except Exception as e:
-        logger.error(f"Error processing NAI {req.nai}: {e}")
+        logger.error(f"Error processing NAI {req.nai} in session {req.session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/status")
 def get_status():
-    """
-    Returns the current status of the worker.
-    """
-    if not worker:
-        return {"status": "Worker not initialized", "is_running": False}
-
-    return {
-        "is_running": worker.is_running,
-        "has_driver": worker.driver is not None
-    }
+    sessions = []
+    for session_id, worker in workers.items():
+        sessions.append({
+            "session_id": session_id,
+            "is_running": worker.is_running,
+            "has_driver": worker.driver is not None
+        })
+    return {"active_sessions": len(sessions), "sessions": sessions}
 
 if __name__ == "__main__":
     import uvicorn
