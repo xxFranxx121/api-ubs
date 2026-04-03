@@ -5,6 +5,8 @@ import threading
 import uuid
 import logging
 import os
+import time
+import psutil
 from contextlib import asynccontextmanager
 
 # --- Configuration ---
@@ -36,6 +38,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
     workers.clear()
+    last_activity.clear()
 
 app = FastAPI(title="Gestor de Impresión API", version="1.0.0", lifespan=lifespan)
 
@@ -54,8 +57,32 @@ async def log_requests(request: Request, call_next):
     logger.info(f"Response Status: {response.status_code}")
     return response
 
+# --- Configuration ---
+MAX_SESSIONS = int(os.environ.get("MAX_SESSIONS", 3))
+SESSION_IDLE_TIMEOUT = int(os.environ.get("SESSION_IDLE_TIMEOUT", 600))  # 10 min default
+
 # --- Global State ---
 workers = {}  # session_id -> SeleniumWorker
+last_activity = {}  # session_id -> timestamp of last call
+
+
+def cleanup_idle_sessions():
+    """Remove sessions that have been idle longer than SESSION_IDLE_TIMEOUT."""
+    now = time.time()
+    to_remove = [
+        sid for sid, ts in last_activity.items()
+        if now - ts > SESSION_IDLE_TIMEOUT
+    ]
+    for sid in to_remove:
+        idle_time = int(now - last_activity.pop(sid, now))
+        worker = workers.pop(sid, None)
+        if worker:
+            try:
+                worker.stop_session()
+            except Exception:
+                pass
+            logger.info(f"Auto-closed idle session {sid} (inactive {idle_time}s)")
+    return len(to_remove)
 
 # --- Models ---
 class LoginRequest(BaseModel):
@@ -87,6 +114,15 @@ def start_session(req: LoginRequest):
     if not SeleniumWorker:
         raise HTTPException(status_code=503, detail="SeleniumWorker not available (Import failed)")
 
+    # Clean up idle sessions before checking the limit
+    cleanup_idle_sessions()
+
+    if len(workers) >= MAX_SESSIONS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Max sessions reached ({MAX_SESSIONS}). Stop an existing session or wait for idle cleanup."
+        )
+
     session_id = str(uuid.uuid4())
     worker = SeleniumWorker()
 
@@ -99,6 +135,7 @@ def start_session(req: LoginRequest):
             headless=req.headless
         )
         workers[session_id] = worker
+        last_activity[session_id] = time.time()
         logger.info(f"Session {session_id} started for user {req.user}")
         return {"status": "Session started successfully", "session_id": session_id}
     except Exception as e:
@@ -109,6 +146,7 @@ def start_session(req: LoginRequest):
 @app.post("/stop-session")
 def stop_session(req: StopRequest):
     worker = workers.pop(req.session_id, None)
+    last_activity.pop(req.session_id, None)
     if not worker:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -126,6 +164,7 @@ def process_nai(req: ProcessRequest):
         raise HTTPException(status_code=400, detail="Session not active.")
 
     try:
+        last_activity[req.session_id] = time.time()
         result = worker.process_nai(nai=req.nai)
         return result
     except Exception as e:
@@ -134,14 +173,33 @@ def process_nai(req: ProcessRequest):
 
 @app.get("/status")
 def get_status():
+    cleanup_idle_sessions()
+
+    now = time.time()
+    process = psutil.Process()
+    mem = process.memory_info()
+
     sessions = []
     for session_id, worker in workers.items():
+        idle_seconds = int(now - last_activity.get(session_id, now))
         sessions.append({
             "session_id": session_id,
             "is_running": worker.is_running,
-            "has_driver": worker.driver is not None
+            "has_driver": worker.driver is not None,
+            "idle_seconds": idle_seconds,
+            "idle_timeout_in": max(0, SESSION_IDLE_TIMEOUT - idle_seconds),
         })
-    return {"active_sessions": len(sessions), "sessions": sessions}
+
+    return {
+        "active_sessions": len(sessions),
+        "max_sessions": MAX_SESSIONS,
+        "memory": {
+            "rss_mb": round(mem.rss / 1024 / 1024, 1),
+            "vms_mb": round(mem.vms / 1024 / 1024, 1),
+        },
+        "idle_timeout_seconds": SESSION_IDLE_TIMEOUT,
+        "sessions": sessions,
+    }
 
 if __name__ == "__main__":
     import uvicorn
